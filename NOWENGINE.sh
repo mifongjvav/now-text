@@ -1,3 +1,10 @@
+#!/bin/bash
+
+# --- 颜色定义 ---
+C_WHITE_ON_YELLOW='\033[1;37;43m'  # 白字黄底 (进度/目标)
+C_WHITE_ON_PURPLE='\033[1;37;45m' # 白字紫底 (挑战)
+C_RESET='\033[0m'               # 重置所有颜色属性
+
 # 显示主菜单
 show_menu() {
     echo "now!text V2"
@@ -7,11 +14,67 @@ show_menu() {
     echo "2. 继续游戏"
     echo "3. 删除进度"
     echo "4. 运行自定义游戏"
-    echo "5. 退出"
+    echo "5. 成就"
+    echo "6. 退出"
     echo ""
 }
 
-# 运行游戏的核心函数（已重构）
+# --- 成就系统函数 ---
+
+# 解锁成就
+unlock_achievement() {
+    local type="$1"
+    local name="$2"
+    local achievement_id="${type}|${name}" # 使用类型和名称作为唯一标识
+
+    # 检查成就日志，如果尚未解锁，则进行记录和提示
+    if ! grep -q "^${achievement_id}|" ./levels/achievements.log; then
+        local current_date
+        current_date=$(date +'%Y-%m-%d')
+        echo "${achievement_id}|${current_date}" >> ./levels/achievements.log
+
+        # 根据成就类型选择颜色
+        local color
+        if [[ "$type" == "A3" ]]; then
+            color="${C_WHITE_ON_PURPLE}"
+        else
+            color="${C_WHITE_ON_YELLOW}"
+        fi
+
+        # 只显示提示，不暂停
+        echo ""
+        echo -e "${color}成就解锁: ${name}${C_RESET}"
+    fi
+}
+
+# 显示已获得的成就列表
+show_achievements() {
+    -CLEAR
+    echo "--- 成就列表 ---"
+    echo ""
+
+    if [ ! -s "./levels/achievements.log" ]; then
+        echo "尚未解锁任何成就。"
+    else
+        # 从成就日志文件中读取并格式化输出
+        while IFS='|' read -r type name date; do
+            local color
+            if [[ "$type" == "A3" ]]; then
+                color="${C_WHITE_ON_PURPLE}"
+            else
+                color="${C_WHITE_ON_YELLOW}"
+            fi
+            # 添加换行以改善间距
+            echo -e "${color}[${date}] ${name}${C_RESET}\n"
+        done < "./levels/achievements.log"
+    fi
+
+    echo ""
+    read -p "按任意键返回主菜单..." -n1 -s
+}
+
+
+# 运行游戏的核心函数（已重构并加入成就系统）
 run_game() {
     local level_file=$1
     if [ ! -f "$level_file" ]; then
@@ -56,6 +119,11 @@ run_game() {
             if [[ "$type" == "P" || "$type" == "S" ]]; then
                 # 这是剧情或对话，添加到 plot
                 plot+="${text}\n"
+            elif [[ "$type" == "A" ]]; then
+                # 这是成就，解锁它
+                local achievement_type="A${content:1:1}"
+                local achievement_name="${content:3}"
+                unlock_achievement "$achievement_type" "$achievement_name"
             elif [[ "$type" == "B" ]]; then
                 # 这是一个选项，B后面是编号和文本
                 choice_texts+=("${content:3}")
@@ -104,7 +172,7 @@ run_game() {
             return
         elif [[ "$type" == "E" ]]; then
             echo "游戏结束！"
-            exit 0
+            read -p "按任意键返回主菜单..." -n1 -s
         fi
         # 如果没有 N 或 E，视为分支结束
         return
@@ -131,7 +199,8 @@ run_game() {
     local selected_block="${choice_blocks[selected_index]}"
 
     # 为选择的剧情块创建一个临时关卡文件
-    local temp_level_file=$(mktemp ./levels/temp.XXXXXX)
+    local temp_level_file
+    temp_level_file=$(mktemp ./levels/temp.XXXXXX)
     echo -e "$selected_block" > "$temp_level_file"
     
     # 保存进度并运行下一段剧情
@@ -141,7 +210,11 @@ run_game() {
 
 main() {
 
+# 确保成就文件存在，如果不存在则创建
+touch ./levels/achievements.log
+
 while true; do
+    -CLEAR
     show_menu
     read -p "请输入你的选择: " choice
 
@@ -160,6 +233,7 @@ while true; do
                 run_game "$level_to_continue"
             else
                 echo "没有可继续的游戏进度。"
+                read -p "按任意键返回..." -n1 -s
             fi
             ;;
         3)
@@ -167,6 +241,7 @@ while true; do
             > ./levels/progress.cfg
             rm -f ./levels/temp.*
             echo "游戏进度已删除。"
+            read -p "按任意键返回..." -n1 -s
             ;;
         4)
             # 运行自定义游戏
@@ -177,15 +252,21 @@ while true; do
                 run_game "./playerlevels/$custom_level"
             else
                 echo "错误：自定义关卡文件不存在。"
+                read -p "按任意键返回..." -n1 -s
             fi
             ;;
         5)
+            # 显示成就
+            show_achievements
+            ;;
+        6)
             # 退出
             echo "再见！"
             exit 0
             ;;
         *)
             echo "无效的选择，请重新输入。"
+            read -p "按任意键返回..." -n1 -s
             ;;
     esac
 done
